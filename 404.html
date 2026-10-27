@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b0d18">
+<meta name="robots" content="noindex">
+<title>Video</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0d18; color: rgba(255, 255, 255, .66); }
+  body { display: grid; place-items: center; font: 16px -apple-system, "Segoe UI", Roboto, system-ui, sans-serif; }
+  a { color: #fff; }
+</style>
+</head>
+<body>
+<p>Abriendo… <noscript><a href="./">Entrar</a></noscript></p>
+<script>
+  // La app vive dentro del descifrador (sw.js) y no existe como ficheros: una dirección que el servidor
+  // no tiene (/video/app sin barra, una ruta vieja, abrir sin el descifrador activo…) lleva a la puerta.
+  try { sessionStorage.setItem("video-404", String(Date.now())); } catch (_) {}
+  const sitio = location.pathname.split("/")[1];
+  location.replace(sitio ? "/" + sitio + "/" : "/");
+</script>
+</body>
+</html>

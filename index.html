@@ -145,6 +145,12 @@
     const reg = await navigator.serviceWorker.register("sw.js");
     await navigator.serviceWorker.ready;
     (reg.active || navigator.serviceWorker.controller)?.postMessage("olvidar");
+    if (!navigator.serviceWorker.controller) {                       // que el descifrador ya mande en esta página
+      await new Promise((res) => {
+        navigator.serviceWorker.addEventListener("controllerchange", res, { once: true });
+        setTimeout(res, 3000);
+      });
+    }
     try { sessionStorage.setItem("video-abierto", String(Date.now())); } catch (_) {}
     location.replace("app/");
   }
@@ -156,12 +162,16 @@
       return;
     }
     // si la app nos devuelve aquí nada más abrirla es que el navegador no guarda la contraseña: se corta el bucle
-    let hace = Infinity;
-    try { hace = Date.now() - Number(sessionStorage.getItem("video-abierto") || 0); } catch (_) {}
+    let hace = Infinity, hace404 = Infinity;
+    try {
+      hace = Date.now() - Number(sessionStorage.getItem("video-abierto") || 0);
+      hace404 = Date.now() - Number(sessionStorage.getItem("video-404") || 0);
+      sessionStorage.removeItem("video-404");
+    } catch (_) {}
     if (hace < 8000) {
-      await guardada(null).catch(() => {});
+      if (hace404 >= 8000) await guardada(null).catch(() => {});     // rebote sin 404: no guarda la contraseña; con 404: la contraseña vale, falla el descifrador
       try { sessionStorage.removeItem("video-abierto"); } catch (_) {}
-      $("error").textContent = T.bucle;
+      $("error").textContent = T.bucle + (hace404 < 8000 ? " [404]" : "");
       setTimeout(() => $("clave").focus(), 400);
       return;
     }
