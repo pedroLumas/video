@@ -82,8 +82,8 @@
 (() => {
   const en = !(navigator.language || "es").toLowerCase().startsWith("es");
   const T = en
-    ? { texto: "Type the password. This device will only ask once.", ph: "Password", entrar: "Enter", abriendo: "Opening…", mal: "Wrong password", sinSw: "This browser can't open the app. Try Safari or Chrome." }
-    : { texto: "Escribe la contraseña. Solo te la pedirá una vez en este dispositivo.", ph: "Contraseña", entrar: "Entrar", abriendo: "Abriendo…", mal: "Contraseña incorrecta", sinSw: "Este navegador no puede abrir la app. Prueba con Safari o Chrome." };
+    ? { texto: "Type the password. This device will only ask once.", ph: "Password", entrar: "Enter", abriendo: "Opening…", mal: "Wrong password", fallo: "Couldn't open it in this browser", bucle: "This browser doesn't keep the password. Open the link in Safari or Chrome (not private mode, not inside another app) and try again.", sinSw: "This browser can't open the app. Try Safari or Chrome." }
+    : { texto: "Escribe la contraseña. Solo te la pedirá una vez en este dispositivo.", ph: "Contraseña", entrar: "Entrar", abriendo: "Abriendo…", mal: "Contraseña incorrecta", fallo: "No se pudo abrir en este navegador", bucle: "Este navegador no guarda la contraseña. Abre el enlace en Safari o Chrome (sin modo privado y no dentro de otra app) y prueba otra vez.", sinSw: "Este navegador no puede abrir la app. Prueba con Safari o Chrome." };
   const $ = (id) => document.getElementById(id);
   $("texto").textContent = T.texto; $("clave").placeholder = T.ph; $("entrar").textContent = T.entrar;
   document.documentElement.lang = en ? "en" : "es";
@@ -116,17 +116,36 @@
     return crypto.subtle.importKey("raw", bits.slice(0, 32), "AES-GCM", false, ["decrypt"]);
   }
   async function vale(k) {
+    const buf = await (await fetch("m.bin", { cache: "no-store" })).arrayBuffer();     // sin red: lanza, no es «contraseña mala»
     try {
-      const buf = await (await fetch("m.bin", { cache: "no-store" })).arrayBuffer();
       await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(buf, 0, 12) }, k, new Uint8Array(buf, 12));
       return true;
     } catch (_) { return false; }
   }
+  // por qué falla, en una línea (para poder decírselo a quien lo prueba)
+  const porque = (e) => String((e && ((e.name || "") + (e.message ? ": " + e.message : ""))) || e || "").slice(0, 110);
+  function fallo(e) {
+    document.body.classList.remove("dentro");
+    $("error").textContent = T.fallo + " (" + porque(e) + ")";
+    $("entrar").disabled = false;
+    $("entrar").textContent = T.entrar;
+  }
+  function mala() {
+    $("error").textContent = T.mal;
+    const t = $("puerta");
+    t.classList.remove("mal"); void t.offsetWidth; t.classList.add("mal");
+    try { navigator.vibrate && navigator.vibrate([24, 50, 24]); } catch (_) {}
+    $("entrar").disabled = false;
+    $("entrar").textContent = T.entrar;
+    $("clave").select();
+  }
+
   async function abrir() {
     document.body.classList.add("dentro");
     const reg = await navigator.serviceWorker.register("sw.js");
     await navigator.serviceWorker.ready;
     (reg.active || navigator.serviceWorker.controller)?.postMessage("olvidar");
+    try { sessionStorage.setItem("video-abierto", String(Date.now())); } catch (_) {}
     location.replace("app/");
   }
 
@@ -136,12 +155,25 @@
       $("entrar").disabled = true;
       return;
     }
+    // si la app nos devuelve aquí nada más abrirla es que el navegador no guarda la contraseña: se corta el bucle
+    let hace = Infinity;
+    try { hace = Date.now() - Number(sessionStorage.getItem("video-abierto") || 0); } catch (_) {}
+    if (hace < 8000) {
+      await guardada(null).catch(() => {});
+      try { sessionStorage.removeItem("video-abierto"); } catch (_) {}
+      $("error").textContent = T.bucle;
+      setTimeout(() => $("clave").focus(), 400);
+      return;
+    }
     navigator.serviceWorker.register("sw.js").catch(() => {});
     const k = await guardada().catch(() => null);
     if (k) {
       document.body.classList.add("dentro");
-      if (await vale(k) || !navigator.onLine) return abrir();   // sin conexión se confía en la guardada
-      await guardada(null);                                       // la contraseña cambió: se vuelve a pedir
+      try {
+        const bien = await vale(k).catch(() => null);               // null: no se pudo comprobar (sin conexión): se confía en la guardada
+        if (bien !== false) return await abrir();
+      } catch (e) { return fallo(e); }
+      await guardada(null);                                           // la contraseña cambió: se vuelve a pedir
       document.body.classList.remove("dentro");
     }
     setTimeout(() => $("clave").focus(), 400);
@@ -153,21 +185,17 @@
     b.disabled = true;
     b.textContent = T.abriendo;
     $("error").textContent = "";
+    let k;
     try {
-      const k = await derivar($("clave").value);
-      if (!(await vale(k))) throw new Error("mal");
+      k = await derivar($("clave").value);
+      if (!(await vale(k))) return mala();
+    } catch (err) { return fallo(err); }                              // sin red, no es la contraseña
+    try {
       await guardada(k);
+      if (!(await guardada())) throw new Error("no se pudo guardar la contraseña en este navegador");
       try { navigator.vibrate && navigator.vibrate([10, 50, 16]); } catch (_) {}
       await abrir();
-    } catch (_) {
-      $("error").textContent = T.mal;
-      const t = $("puerta");
-      t.classList.remove("mal"); void t.offsetWidth; t.classList.add("mal");
-      try { navigator.vibrate && navigator.vibrate([24, 50, 24]); } catch (_) {}
-      b.disabled = false;
-      b.textContent = T.entrar;
-      $("clave").select();
-    }
+    } catch (err) { fallo(err); }
   });
   empezar();
 })();
